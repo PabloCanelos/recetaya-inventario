@@ -5,6 +5,7 @@ import com.inventario.dto.DetalleReservaResponseDTO;
 import com.inventario.dto.ReservaStockResponseDTO;
 
 import com.inventario.exception.RecursoNoEncontradoException;
+
 import com.inventario.entity.DetalleReservaEntity;
 import com.inventario.entity.MedicamentoEntity;
 import com.inventario.entity.ReservaStockEntity;
@@ -39,6 +40,8 @@ public class ReservaStockService {
     @Autowired
     private SucursalRepository sucursalRepository;
 
+    // LISTAR TODAS LAS RESERVAS
+
     @Transactional(readOnly = true)
     public List<ReservaStockResponseDTO> listarReservas() {
 
@@ -48,17 +51,21 @@ public class ReservaStockService {
                 .toList();
     }
 
+    // BUSCAR RESERVA POR ID
+
     @Transactional(readOnly = true)
     public ReservaStockResponseDTO buscarReservaPorId(Integer idReserva) {
 
         ReservaStockEntity reserva = reservaStockRepository
                 .findById(idReserva)
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new RecursoNoEncontradoException(
                         "Reserva no encontrada con ID: " + idReserva
                 ));
 
         return convertirADTO(reserva);
     }
+
+    // BUSCAR RESERVA POR RECETA
 
     @Transactional(readOnly = true)
     public ReservaStockResponseDTO buscarReservaPorReceta(Integer idReceta) {
@@ -67,7 +74,7 @@ public class ReservaStockService {
                 reservaStockRepository.findByIdReceta(idReceta);
 
         if (reservas.isEmpty()) {
-            throw new RuntimeException(
+            throw new RecursoNoEncontradoException(
                     "No existe reserva para la receta: " + idReceta
             );
         }
@@ -75,12 +82,16 @@ public class ReservaStockService {
         return convertirADTO(reservas.get(0));
     }
 
+    // RESERVAR MEDICAMENTO
+
     @Transactional
     public ReservaStockResponseDTO reservarMedicamento(
             Integer idReceta,
             Integer idSucursal,
             Integer idMedicamento,
             Integer cantidad) {
+
+        // Validar campos obligatorios
 
         if (idReceta == null || idSucursal == null ||
                 idMedicamento == null || cantidad == null) {
@@ -90,36 +101,50 @@ public class ReservaStockService {
             );
         }
 
+        // Validar cantidad positiva
+
         if (cantidad <= 0) {
             throw new IllegalArgumentException(
                     "La cantidad debe ser mayor que cero"
             );
         }
 
+        // Evitar reservas duplicadas para la misma receta
+
         if (!reservaStockRepository.findByIdReceta(idReceta).isEmpty()) {
-            throw new IllegalArgumentException(
+            throw new IllegalStateException(
                     "Ya existe una reserva para esta receta"
             );
         }
 
+        // Verificar existencia de sucursal
+
         SucursalEntity sucursal = sucursalRepository
                 .findById(idSucursal)
-                .orElseThrow(() -> new RuntimeException(
-                        "Sucursal no encontrada"
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "Sucursal no encontrada con ID: " + idSucursal
                 ));
+
+        // Verificar existencia de medicamento
 
         MedicamentoEntity medicamento = medicamentoRepository
                 .findById(idMedicamento)
-                .orElseThrow(() -> new RecursoNoEncontradoException("Medicamento no encontrado"));
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "Medicamento no encontrado con ID: " + idMedicamento
+                ));
+
+        // Obtener stock con bloqueo pesimista de escritura
 
         StockEntity stock = stockRepository
-                .findByMedicamento_IdMedicamentoAndSucursal_IdSucursal(
+                .buscarStockParaActualizar(
                         idMedicamento,
                         idSucursal
                 )
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new RecursoNoEncontradoException(
                         "No existe stock para este medicamento en esta sucursal"
                 ));
+
+        // Validar stock suficiente
 
         if (stock.getCantidadDisponible() < cantidad) {
             throw new IllegalArgumentException(
@@ -127,9 +152,13 @@ public class ReservaStockService {
             );
         }
 
+        // Descontar stock disponible
+
         stock.setCantidadDisponible(
                 stock.getCantidadDisponible() - cantidad
         );
+
+        // Aumentar stock reservado
 
         stock.setCantidadReservada(
                 stock.getCantidadReservada() + cantidad
@@ -137,12 +166,16 @@ public class ReservaStockService {
 
         stockRepository.save(stock);
 
+        // Crear reserva
+
         ReservaStockEntity reserva = new ReservaStockEntity();
 
         reserva.setIdReceta(idReceta);
         reserva.setSucursal(sucursal);
         reserva.setFechaReserva(LocalDateTime.now());
         reserva.setEstado("ACTIVA");
+
+        // Crear detalle de reserva
 
         DetalleReservaEntity detalle = new DetalleReservaEntity();
 
@@ -155,25 +188,36 @@ public class ReservaStockService {
 
         reserva.setDetalles(detalles);
 
-        ReservaStockEntity guardada = reservaStockRepository.save(reserva);
+        // Guardar reserva y sus detalles
+
+        ReservaStockEntity guardada =
+                reservaStockRepository.save(reserva);
 
         return convertirADTO(guardada);
     }
 
+    // CANCELAR RESERVA
+
     @Transactional
     public ReservaStockResponseDTO cancelarReserva(Integer idReserva) {
 
+        // Buscar y bloquear la reserva para su actualización
+
         ReservaStockEntity reserva = reservaStockRepository
-                .findById(idReserva)
-                .orElseThrow(() -> new RuntimeException(
-                        "Reserva no encontrada"
+                .buscarReservaParaActualizar(idReserva)
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "Reserva no encontrada con ID: " + idReserva
                 ));
 
+        // Verificar que la reserva esté activa
+
         if (!"ACTIVA".equals(reserva.getEstado())) {
-            throw new IllegalArgumentException(
+            throw new IllegalStateException(
                     "Solo se pueden cancelar reservas activas"
             );
         }
+
+        // Recuperar stock de cada detalle
 
         for (DetalleReservaEntity detalle : reserva.getDetalles()) {
 
@@ -183,18 +227,32 @@ public class ReservaStockService {
             Integer idSucursal = reserva.getSucursal()
                     .getIdSucursal();
 
+            // Obtener stock con bloqueo pesimista de escritura
+
             StockEntity stock = stockRepository
-                    .findByMedicamento_IdMedicamentoAndSucursal_IdSucursal(
+                    .buscarStockParaActualizar(
                             idMedicamento,
                             idSucursal
                     )
-                    .orElseThrow(() -> new RuntimeException(
+                    .orElseThrow(() -> new RecursoNoEncontradoException(
                             "No se encontró el stock asociado a la reserva"
                     ));
+
+            // Impedir que el stock reservado quede negativo
+
+            if (stock.getCantidadReservada() < detalle.getCantidad()) {
+                throw new IllegalStateException(
+                        "El stock reservado es insuficiente para cancelar la reserva"
+                );
+            }
+
+            // Recuperar stock disponible
 
             stock.setCantidadDisponible(
                     stock.getCantidadDisponible() + detalle.getCantidad()
             );
+
+            // Descontar stock reservado
 
             stock.setCantidadReservada(
                     stock.getCantidadReservada() - detalle.getCantidad()
@@ -203,14 +261,90 @@ public class ReservaStockService {
             stockRepository.save(stock);
         }
 
+        // Actualizar estado de la reserva
+
         reserva.setEstado("CANCELADA");
 
-        ReservaStockEntity actualizada = reservaStockRepository.save(reserva);
+        ReservaStockEntity actualizada =
+                reservaStockRepository.save(reserva);
 
         return convertirADTO(actualizada);
     }
 
-    public ReservaStockResponseDTO convertirADTO(ReservaStockEntity reserva) {
+    // CONFIRMAR DISPENSACIÓN
+
+    @Transactional
+    public ReservaStockResponseDTO confirmarDispensacion(Integer idReserva) {
+
+        // Bloquear la reserva para impedir operaciones simultáneas
+
+        ReservaStockEntity reserva = reservaStockRepository
+                .buscarReservaParaActualizar(idReserva)
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "Reserva no encontrada con ID: " + idReserva
+                ));
+
+        // Solo se pueden dispensar reservas activas
+
+        if (!"ACTIVA".equals(reserva.getEstado())) {
+            throw new IllegalStateException(
+                    "Solo se pueden dispensar reservas activas"
+            );
+        }
+
+        // Procesar cada medicamento reservado
+
+        for (DetalleReservaEntity detalle : reserva.getDetalles()) {
+
+            Integer idMedicamento = detalle.getMedicamento()
+                    .getIdMedicamento();
+
+            Integer idSucursal = reserva.getSucursal()
+                    .getIdSucursal();
+
+            // Bloquear el stock correspondiente
+
+            StockEntity stock = stockRepository
+                    .buscarStockParaActualizar(
+                            idMedicamento,
+                            idSucursal
+                    )
+                    .orElseThrow(() -> new RecursoNoEncontradoException(
+                            "No se encontró el stock asociado a la reserva"
+                    ));
+
+            // Validar unidades reservadas suficientes
+
+            if (stock.getCantidadReservada() < detalle.getCantidad()) {
+                throw new IllegalStateException(
+                        "Stock reservado insuficiente para dispensar"
+                );
+            }
+
+            // El stock disponible ya fue descontado al reservar.
+            // Solo se descuentan las unidades reservadas.
+
+            stock.setCantidadReservada(
+                    stock.getCantidadReservada() - detalle.getCantidad()
+            );
+
+            stockRepository.save(stock);
+        }
+
+        // Marcar la reserva como dispensada
+
+        reserva.setEstado("DISPENSADA");
+
+        ReservaStockEntity actualizada =
+                reservaStockRepository.save(reserva);
+
+        return convertirADTO(actualizada);
+    }
+
+    // CONVERTIR ENTIDAD A DTO
+
+    public ReservaStockResponseDTO convertirADTO(
+            ReservaStockEntity reserva) {
 
         ReservaStockResponseDTO dto = new ReservaStockResponseDTO();
 
@@ -228,7 +362,8 @@ public class ReservaStockService {
         dto.setFechaReserva(reserva.getFechaReserva());
         dto.setEstado(reserva.getEstado());
 
-        List<DetalleReservaResponseDTO> detallesDTO = new ArrayList<>();
+        List<DetalleReservaResponseDTO> detallesDTO =
+                new ArrayList<>();
 
         for (DetalleReservaEntity detalle : reserva.getDetalles()) {
 
