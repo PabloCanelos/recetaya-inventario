@@ -54,4 +54,13 @@ public class ReservaStockController {
 
         return reservaStockService.cancelarReserva(idReserva);
     }
+
+    // CONFIRMAR DISPENSACIÓN
+
+    @PutMapping("/{idReserva}/dispensar")
+    public ReservaStockResponseDTO confirmarDispensacion(
+            @PathVariable Integer idReserva) {
+
+        return reservaStockService.confirmarDispensacion(idReserva);
+    }
 }

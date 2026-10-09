@@ -7,7 +7,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "reserva_stock")
+@Table(
+    name = "reserva_stock",
+    uniqueConstraints = {
+        @UniqueConstraint(
+            name = "uk_reserva_stock_id_receta",
+            columnNames = {"id_receta"}
+        )
+    }
+)
 public class ReservaStockEntity {
 
     @Id
@@ -35,8 +43,12 @@ public class ReservaStockEntity {
     )
     private List<DetalleReservaEntity> detalles = new ArrayList<>();
 
+    // CONSTRUCTOR VACIO
+
     public ReservaStockEntity() {
     }
+
+    // GETTERS Y SETTERS
 
     public Integer getIdReserva() {
         return idReserva;
