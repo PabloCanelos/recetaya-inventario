@@ -50,4 +50,22 @@ public class StockController {
                 request.getCantidad()
         );
     }
+
+    @PutMapping("/{idStock}")
+    public StockResponseDTO actualizarStock(
+            @PathVariable Integer idStock,
+            @RequestBody StockRequestDTO request) {
+
+        return stockService.actualizarStock(
+                idStock,
+                request.getCantidad()
+        );
+    }
+
+    @DeleteMapping("/{idStock}")
+    public void eliminarStock(
+            @PathVariable Integer idStock) {
+
+        stockService.eliminarStock(idStock);
+    }
 }

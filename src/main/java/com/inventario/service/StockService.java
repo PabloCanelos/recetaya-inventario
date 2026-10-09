@@ -5,6 +5,7 @@ import com.inventario.dto.StockResponseDTO;
 import com.inventario.entity.MedicamentoEntity;
 import com.inventario.entity.StockEntity;
 import com.inventario.entity.SucursalEntity;
+import com.inventario.exception.RecursoNoEncontradoException;
 import com.inventario.repository.MedicamentoRepository;
 import com.inventario.repository.StockRepository;
 import com.inventario.repository.SucursalRepository;
@@ -38,7 +39,7 @@ public class StockService {
     @Transactional(readOnly = true)
     public StockResponseDTO buscarStockPorId(Integer idStock) {
         StockEntity stock = stockRepository.findById(idStock)
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new RecursoNoEncontradoException(
                         "Stock no encontrado con ID: " + idStock
                 ));
 
@@ -55,7 +56,7 @@ public class StockService {
                         idMedicamento,
                         idSucursal
                 )
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new RecursoNoEncontradoException(
                         "No existe stock para el medicamento y sucursal indicados"
                 ));
 
@@ -82,14 +83,14 @@ public class StockService {
 
         MedicamentoEntity medicamento = medicamentoRepository
                 .findById(idMedicamento)
-                .orElseThrow(() -> new RuntimeException(
-                        "Medicamento no encontrado"
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "Medicamento no encontrado con ID: " + idMedicamento
                 ));
 
         SucursalEntity sucursal = sucursalRepository
                 .findById(idSucursal)
-                .orElseThrow(() -> new RuntimeException(
-                        "Sucursal no encontrada"
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "Sucursal no encontrada con ID: " + idSucursal
                 ));
 
         if (stockRepository
@@ -98,7 +99,7 @@ public class StockService {
                         idSucursal
                 ).isPresent()) {
 
-            throw new IllegalArgumentException(
+            throw new IllegalStateException(
                     "Ya existe stock para este medicamento en esta sucursal"
             );
         }
@@ -109,9 +110,50 @@ public class StockService {
         stock.setCantidadDisponible(cantidad);
         stock.setCantidadReservada(0);
 
-        StockEntity guardado = stockRepository.save(stock);
+        return convertirADTO(stockRepository.save(stock));
+    }
 
-        return convertirADTO(guardado);
+    // Actualiza únicamente la cantidad disponible.
+    @Transactional
+    public StockResponseDTO actualizarStock(
+            Integer idStock,
+            Integer nuevaCantidadDisponible) {
+
+        if (nuevaCantidadDisponible == null ||
+                nuevaCantidadDisponible < 0) {
+            throw new IllegalArgumentException(
+                    "La cantidad disponible debe ser mayor o igual a cero"
+            );
+        }
+
+        StockEntity stock = stockRepository
+                .buscarStockPorIdParaActualizar(idStock)
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "Stock no encontrado con ID: " + idStock
+                ));
+
+        stock.setCantidadDisponible(nuevaCantidadDisponible);
+
+        return convertirADTO(stockRepository.save(stock));
+    }
+
+    // Impide eliminar stock con unidades reservadas.
+    @Transactional
+    public void eliminarStock(Integer idStock) {
+
+        StockEntity stock = stockRepository
+                .buscarStockPorIdParaActualizar(idStock)
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "Stock no encontrado con ID: " + idStock
+                ));
+
+        if (stock.getCantidadReservada() > 0) {
+            throw new IllegalStateException(
+                    "No se puede eliminar stock con unidades reservadas"
+            );
+        }
+
+        stockRepository.delete(stock);
     }
 
     public StockResponseDTO convertirADTO(StockEntity stock) {
@@ -119,27 +161,21 @@ public class StockService {
         StockResponseDTO dto = new StockResponseDTO();
 
         dto.setIdStock(stock.getIdStock());
-
         dto.setIdMedicamento(
                 stock.getMedicamento().getIdMedicamento()
         );
-
         dto.setNombreMedicamento(
                 stock.getMedicamento().getNombre()
         );
-
         dto.setIdSucursal(
                 stock.getSucursal().getIdSucursal()
         );
-
         dto.setNombreSucursal(
                 stock.getSucursal().getNombre()
         );
-
         dto.setCantidadDisponible(
                 stock.getCantidadDisponible()
         );
-
         dto.setCantidadReservada(
                 stock.getCantidadReservada()
         );
