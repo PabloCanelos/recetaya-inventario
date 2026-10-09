@@ -4,6 +4,7 @@ package com.inventario.service;
 import com.inventario.dto.DetalleReservaResponseDTO;
 import com.inventario.dto.ReservaStockResponseDTO;
 
+import com.inventario.exception.RecursoNoEncontradoException;
 import com.inventario.entity.DetalleReservaEntity;
 import com.inventario.entity.MedicamentoEntity;
 import com.inventario.entity.ReservaStockEntity;
@@ -109,9 +110,7 @@ public class ReservaStockService {
 
         MedicamentoEntity medicamento = medicamentoRepository
                 .findById(idMedicamento)
-                .orElseThrow(() -> new RuntimeException(
-                        "Medicamento no encontrado"
-                ));
+                .orElseThrow(() -> new RecursoNoEncontradoException("Medicamento no encontrado"));
 
         StockEntity stock = stockRepository
                 .findByMedicamento_IdMedicamentoAndSucursal_IdSucursal(
